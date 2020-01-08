@@ -7,107 +7,118 @@
 namespace Json
 {
 
-class Node {
-public:
-	virtual std::ostream& write(std::ostream& os) const noexcept = 0;
+	class Node {
+	public:
+		virtual std::ostream& write(std::ostream& os) const noexcept = 0;
 
-	friend std::ostream& operator<<(std::ostream& os, const Node& node) {
-		return node.write(os);
-	}
-
-	virtual ~Node() {};
-};
-
-template<typename T>
-class Array : public Node {
-private:
-	std::vector<T> children;
-public:
-	Array(std::vector<T>&& children)
-		:children(std::move(children)) {}
-
-	Array& operator()(T&& val) {
-		children.push_back(std::move(val));
-		return *this;
-	}
-
-	virtual std::ostream& write(std::ostream& os) const noexcept override {
-		os << '[';
-		for (auto it = children.begin(); it != children.end(); ++it){
-			if (std::is_same<T,std::string>::value || std::is_same<T,const char*>::value)
-				os << '\"' << *it << '\"';
-			else
-				os << *it;
-			if (std::next(it) != children.end())
-				os << ',';
+		friend std::ostream& operator<<(std::ostream& os, const Node& node) {
+			return node.write(os);
 		}
-		os << ']';
 
-		return os;
-	}
-};
-
-template<typename T>
-class Value : public Node {
-private:
-	T value;
-public:
-	Value(T&& value)
-		:
-		value(std::move(value))
-	{
-
-	}
-
-	virtual std::ostream& write(std::ostream& os) const noexcept override {
-		if (!std::is_arithmetic<T>::value)
-			os << '\"' << value << '\"';
-		else
-			os << value;
-
-		return os;
-	}
-};
-
-class Object : public Node {
-private:
-	std::unordered_map<std::string,std::shared_ptr<Node>> children;
-public:
-	Object(){}
-
-	virtual std::ostream& write(std::ostream& os) const noexcept override {
-		os << '{';
-		for (auto it = children.begin(); it != children.end(); ++it)
-		{
-			os << '\"' << it->first << "\":" << *it->second;
-			if (std::next(it) != children.end())
-				os << ',';
-		}
-		os << '}';
-
-		return os;
-	}
-
+		virtual ~Node() {};
+	};
 
 	template<typename T>
-	Object& operator()(const std::string& name, T && value) {
-		children[name] = std::make_shared<Value<T>>(std::move(value));
-		return *this;
+	class Array : public Node {
+	private:
+		std::vector<T> children;
+	public:
+		Array(std::vector<T>&& children)
+			:children(std::move(children)) {}
+
+		Array& operator()(T&& val) {
+			children.push_back(std::move(val));
+			return *this;
+		}
+
+		virtual std::ostream& write(std::ostream& os) const noexcept override {
+			os << '[';
+			for (auto it = children.begin(); it != children.end(); ++it) {
+				if (std::is_same<T, std::string>::value || std::is_same<T, const char*>::value)
+					os << '\"' << *it << '\"';
+				else
+					os << *it;
+				if (std::next(it) != children.end())
+					os << ',';
+			}
+			os << ']';
+
+			return os;
+		}
+	};
+
+	template<typename T,
+		typename std::enable_if<!std::is_arithmetic<T>::value &&
+		!std::is_same<typename std::remove_reference<T>::type, std::tm>::value>::type * = nullptr>
+	std::ostream& writeImpl(std::ostream& os, const T& value) {
+		return os << '\"' << value << '\"';
+	}
+
+	template<typename T,
+		typename std::enable_if<std::is_arithmetic<T>::value>::type * = nullptr>
+	std::ostream& writeImpl(std::ostream& os, const T& value) {
+		return os << value;
+	}
+
+	template<typename T,
+		typename std::enable_if<std::is_same<typename std::remove_reference<T>::type, std::tm>::value>::type * = nullptr>
+	std::ostream& writeImpl(std::ostream& os, const T& value) {
+		return os << '\"' << std::put_time(&value, "%Y-%m-%dT%H:%M:%S") << '\"';
 	}
 
 	template<typename T>
-	Object& operator()(const std::string& name, std::initializer_list<T>&& value) {
-		children[name] = std::make_shared<Array<T>>(std::forward<std::initializer_list<T>>(value));
-		return *this;
-	}
-};
+	class Value : public Node {
+	private:
+		T value;
+	public:
+		Value(T&& value)
+			:value(std::forward<T>(value)) {}
 
-template<>
-Object& Object::operator()(const std::string& name, Object& value) {
-	children[name] = std::make_shared<Object>(value);
-	return *this;
-}
+		virtual std::ostream& write(std::ostream& os) const noexcept override {
+			return writeImpl<T>(os, value);
+		}
+	};
 
+	class Object : public Node {
+	private:
+		std::unordered_map<std::string, std::shared_ptr<Node>> children;
+	public:
+		Object() {}
+
+		virtual std::ostream& write(std::ostream& os) const noexcept override {
+			os << '{';
+			for (auto it = children.begin(); it != children.end(); ++it)
+			{
+				os << '\"' << it->first << "\":" << *it->second;
+				if (std::next(it) != children.end())
+					os << ',';
+			}
+			os << '}';
+
+			return os;
+		}
+
+
+		template<typename T,
+			typename std::enable_if<!std::is_same<typename std::remove_reference<T>::type, Object>::value>::type * = nullptr>
+		Object& operator()(const std::string& name, T&& value) {
+			children[name] = std::make_shared<Value<T>>(std::forward<T>(value));
+			return *this;
+		}
+
+		template<typename T,
+			typename std::enable_if<std::is_same<typename std::remove_reference<T>::type, Object>::value>::type * = nullptr>
+		Object& operator()(const std::string& name, T&& value) {
+			children[name] = std::make_shared<Object>(std::forward<T>(value));
+			return *this;
+		}
+
+		template<typename T>
+		Object& operator()(const std::string& name, std::initializer_list<T>&& value) {
+			children[name] = std::make_shared<Array<T>>(std::forward<std::initializer_list<T>>(value));
+			return *this;
+		}
+	};
 }
 
 
