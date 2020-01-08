@@ -6,7 +6,6 @@
 
 namespace Json
 {
-
 	class Node {
 	public:
 		virtual std::ostream& write(std::ostream& os) const noexcept = 0;
@@ -48,8 +47,7 @@ namespace Json
 	};
 
 	template<typename T,
-		typename std::enable_if<!std::is_arithmetic<T>::value &&
-		!std::is_same<typename std::remove_reference<T>::type, std::tm>::value>::type * = nullptr>
+		typename std::enable_if<!std::is_arithmetic<T>::value>::type * = nullptr>
 	std::ostream& writeImpl(std::ostream& os, const T& value) {
 		return os << '\"' << value << '\"';
 	}
@@ -60,24 +58,23 @@ namespace Json
 		return os << value;
 	}
 
-	template<typename T,
-		typename std::enable_if<std::is_same<typename std::remove_reference<T>::type, std::tm>::value>::type * = nullptr>
-	std::ostream& writeImpl(std::ostream& os, const T& value) {
-		return os << '\"' << std::put_time(&value, "%Y-%m-%dT%H:%M:%S") << '\"';
-	}
-
 	template<typename T>
 	class Value : public Node {
 	private:
 		T value;
 	public:
-		Value(T&& value)
-			:value(std::forward<T>(value)) {}
+		Value(const T& value)
+			:value(value) {}
 
 		virtual std::ostream& write(std::ostream& os) const noexcept override {
 			return writeImpl<T>(os, value);
 		}
 	};
+
+	template<>
+	std::ostream& Value<std::tm>::write(std::ostream& os) const noexcept {
+		return os << '\"' << std::put_time(&value, "%Y-%m-%dT%H:%M:%S") << '\"';
+	}
 
 	class Object : public Node {
 	private:
@@ -101,8 +98,8 @@ namespace Json
 
 		template<typename T,
 			typename std::enable_if<!std::is_same<typename std::remove_reference<T>::type, Object>::value>::type * = nullptr>
-		Object& operator()(const std::string& name, T&& value) {
-			children[name] = std::make_shared<Value<T>>(std::forward<T>(value));
+		Object& operator()(const std::string& name,const T& value) {
+			children[name] = std::make_shared<Value<typename std::remove_reference<T>::type>>(value);
 			return *this;
 		}
 
@@ -116,6 +113,12 @@ namespace Json
 		template<typename T>
 		Object& operator()(const std::string& name, std::initializer_list<T>&& value) {
 			children[name] = std::make_shared<Array<T>>(std::forward<std::initializer_list<T>>(value));
+			return *this;
+		}
+
+		template<typename T>
+		Object& operator()(const std::string& name, std::vector<T>&& value) {
+			children[name] = std::make_shared<Array<T>>(std::forward<std::vector<T>>(value));
 			return *this;
 		}
 	};
