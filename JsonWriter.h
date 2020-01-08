@@ -48,11 +48,11 @@ public:
 };
 
 template<typename T>
-class ValueNode : public Node {
+class Value : public Node {
 private:
 	T value;
 public:
-	ValueNode(T&& value)
+	Value(T&& value)
 		:
 		value(std::move(value))
 	{
@@ -91,7 +91,7 @@ public:
 
 	template<typename T>
 	Object& operator()(const std::string& name, T && value) {
-		children[name] = std::make_shared<ValueNode<T>>(std::move(value));
+		children[name] = std::make_shared<Value<T>>(std::move(value));
 		return *this;
 	}
 
