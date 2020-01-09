@@ -6,6 +6,17 @@
 
 namespace Json
 {
+	namespace details 
+	{
+		template <class charT, charT sep>
+		class punct_facet : public std::numpunct<charT> {
+		protected:
+			charT do_decimal_point() const { return sep; }
+		};
+
+		typedef punct_facet<char, '.'> DecimalPointFacet;
+	}
+
 	class Node;
 	template<typename T>
 	class Value;
@@ -14,10 +25,38 @@ namespace Json
 	class Array;
 
 	class Node {
-	public:
+	private:
 		virtual std::ostream& write(std::ostream& os) const noexcept = 0;
+	protected:
+		//------------WriterImpl---------------//
+		template<typename T>
+		inline static std::ostream& writeImpl(std::ostream& os, const T& value) noexcept {
+			return os << value;
+		}
 
+		inline static std::ostream& writeImpl(std::ostream& os, const std::tm& value) {
+			return os << '\"' << std::put_time(&value, "%Y-%m-%dT%H:%M:%S") << '\"';
+		}
+
+		static std::ostream& writeImpl(std::ostream& os, const std::string& value) noexcept{
+			std::ostringstream escaped;
+			for (char ch : value) {
+				switch (ch) {
+				case '\"':
+				case '\\':
+				case '/':
+					escaped << '\\' << ch;
+					break;
+				default:
+					escaped << ch;
+				}
+			}
+
+			return os << '\"' << escaped.str() << '\"';
+		}
+	public:
 		friend std::ostream& operator<<(std::ostream& os, const Node& node) {
+			os.imbue(std::locale(os.getloc(),new details::DecimalPointFacet()));
 			return node.write(os);
 		}
 
@@ -38,46 +77,10 @@ namespace Json
 	};
 
 
-	//------------WriterImpl---------------//
-	template<typename T>
-	inline std::ostream& writeImpl(std::ostream& os, const T& value) {
-		return os << value;
-	}
-
-	inline std::ostream& writeImpl(std::ostream& os, const std::tm& value) {
-		return os << '\"' << std::put_time(&value, "%Y-%m-%dT%H:%M:%S") << '\"';
-	}
-
-	std::ostream& writeImpl(std::ostream& os, const std::string& value) {
-		std::ostringstream escaped;
-		for (char ch : value) {
-			switch (ch) {
-			case '\"':
-			case '\\':
-			case '/':
-				escaped << '\\' << ch;
-				break;
-			default:
-				escaped << ch;
-			}
-		}
-
-		return os << '\"' << escaped.str() << '\"';
-	}
-
-
 	template<typename T>
 	class Array : public Node {
 	private:
 		std::vector<T> children;
-	public:
-		Array(const std::vector<T>& children)
-			:children(children) {}
-
-		Array& operator()(T&& val) {
-			children.push_back(std::move(val));
-			return *this;
-		}
 
 		virtual std::ostream& write(std::ostream& os) const noexcept override {
 			os << '[';
@@ -89,6 +92,14 @@ namespace Json
 			os << ']';
 
 			return os;
+		}
+	public:
+		Array(const std::vector<T>& children)
+			:children(children) {}
+
+		Array& operator()(T&& val) {
+			children.push_back(std::move(val));
+			return *this;
 		}
 	};
 
@@ -108,8 +119,6 @@ namespace Json
 	class Object : public Node {
 	private:
 		std::unordered_map<std::string, std::shared_ptr<Node>> children;
-	public:
-		Object() {}
 
 		virtual std::ostream& write(std::ostream& os) const noexcept override {
 			os << '{';
@@ -123,7 +132,8 @@ namespace Json
 
 			return os;
 		}
-
+	public:
+		Object() {}
 
 		template<typename T>
 		Object& operator()(const std::string& name, const T& value) {
@@ -161,6 +171,7 @@ namespace Json
 		return std::make_shared<Array<T>>(value);
 	}
 }
+
 
 
 /*Example
